@@ -1,0 +1,87 @@
+{
+  "fuso": "America/Sao_Paulo",
+  "horario_uso": {
+    "dias_semana": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "inicio_h": 8,
+    "fim_h": 18
+  },
+  "feriados": [
+    "2026-11-02",
+    "2026-11-15",
+    "2026-11-20"
+  ],
+  "sondas": {
+    "probe-ct-01": {
+      "rotulo": "ct-01 (anexo C)",
+      "cor": "#d1495b",
+      "estudo": [
+        {
+          "inicio": "2026-11-10T14:09:00-03:00",
+          "fim": null,
+          "local": "anexo C, switch Fast Ethernet"
+        }
+      ],
+      "referencia": [
+        {
+          "inicio": "2026-11-05T10:42:00-03:00",
+          "fim": "2026-11-10T13:53:00-03:00",
+          "local": "rede da TI"
+        }
+      ]
+    },
+    "probe-ct-02": {
+      "rotulo": "ct-02 (sala da TI)",
+      "cor": "#2e86ab",
+      "estudo": [
+        {
+          "inicio": "2026-11-16T10:50:00-03:00",
+          "fim": null,
+          "local": "sala da TI, switch gigabit do anexo A (mesmo do servidor e dos laboratórios)"
+        }
+      ],
+      "referencia": []
+    },
+    "probe-srv-01": {
+      "rotulo": "servidor",
+      "cor": "#66a182",
+      "estudo": [
+        {
+          "inicio": "2026-11-05T00:00:00-03:00",
+          "fim": null,
+          "local": "servidor central, switch gigabit do anexo A"
+        }
+      ],
+      "referencia": []
+    }
+  },
+  "grupos_destino": {
+    "infra": {
+      "rotulo": "Infraestrutura da UFSM",
+      "enderecos": [
+        "200.18.33.23",
+        "200.18.33.169",
+        "200.132.39.132",
+        "45.168.147.19"
+      ]
+    },
+    "externo": {
+      "rotulo": "Destinos externos",
+      "enderecos": [
+        "1.1.1.1",
+        "8.8.8.8",
+        "9.9.9.9"
+      ]
+    }
+  },
+  "planos_vazao": [
+    "malha-vazao"
+  ],
+  "incidentes": "../../../notas-tcc/registro-incidentes.csv",
+  "aulas": null
+}

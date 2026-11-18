@@ -16,6 +16,9 @@ na API e grava:
 
 Uso (no servidor, onde a API responde em localhost:8000):
   python3 experimento.py --par-a probe-ct-01:probe-srv-01 --par-b probe-ct-02:probe-ct-03
+O destino de um par pode ser um computador que não é sonda, rodando 'iperf3 -s'
+(informe o IP, ex.: --par-b probe-ct-02:192.168.129.50). O endereço precisa estar
+cadastrado em Destinos no painel.
 Opções úteis: --rodadas 10 --duracao 10 --usuario admin
 A senha é pedida no terminal (ou lida de SONDAR_SENHA).
 Somente biblioteca padrão do Python.
@@ -76,8 +79,21 @@ def par(txt):
         raise argparse.ArgumentTypeError("use ORIGEM:DESTINO, ex.: probe-ct-01:probe-srv-01")
 
 
+def externo(dst):
+    """Destino que não é sonda: um computador com 'iperf3 -s' (endereço IP ou nome)."""
+    return "." in dst or ":" in dst
+
+
+def alvo(dst):
+    return dst if externo(dst) else f"probe:{dst}"
+
+
+def par_api(src, dst):
+    return {"source_probe": src, "target": dst} if externo(dst) else {"source_probe": src, "target_probe": dst}
+
+
 def job(jid, src, dst, dur):
-    return {"id": jid, "type": "iperf3", "sources": [f"probe:{src}"], "targets": [f"probe:{dst}"],
+    return {"id": jid, "type": "iperf3", "sources": [f"probe:{src}"], "targets": [alvo(dst)],
             "period_seconds": 3600, "duration_seconds": dur, "reverse": False}
 
 
@@ -121,7 +137,7 @@ def main():
 
     # 1. os dois pares precisam disputar um enlace no modo trecho
     chk = api.post("/scheduler/coordination/check", {"mode": "trecho", "pairs": [
-        {"source_probe": a_src, "target_probe": a_dst}, {"source_probe": b_src, "target_probe": b_dst}]})
+        par_api(a_src, a_dst), par_api(b_src, b_dst)]})
     if not chk["conflicts"]:
         sys.exit("os pares não compartilham nenhum enlace cadastrado. Cadastre o enlace e o caminho "
                  "das sondas na página Enlaces do painel antes de rodar o experimento.")

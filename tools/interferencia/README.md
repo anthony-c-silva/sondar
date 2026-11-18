@@ -25,6 +25,15 @@ sorteada:
 - Os dois testes enviam no mesmo sentido (da sonda de origem para o destino,
   sem `reverse`). Em sentidos opostos o enlace full-duplex não seria disputado.
 
+### Sem a Pi 3B
+
+O destino do par B pode ser qualquer computador fora do switch de 100 Mb/s que
+rode `iperf3 -s` na porta 5201 (por exemplo, um PC com Linux: `sudo apt install
+iperf3` e `iperf3 -s`). Cadastre o IP dele em **Destinos** no painel e use
+`--par-b probe-ct-02:<IP do computador>`. A coordenação trata esse destino pela
+cadeia de enlaces da sonda de origem, então o conflito no `sw100-ti` continua
+sendo detectado.
+
 ## Preparação
 
 1. **probe-ct-03 (Pi 3B):** troque `PROBE_ID=probe-ct-03` e a senha no
