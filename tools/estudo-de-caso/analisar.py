@@ -698,6 +698,7 @@ def tabela_consumo(ctx, saude):
     if saude is None or saude.empty:
         return
     linhas = []
+    saude = saude[saude["agent_cpu_pct"].notna() | saude["cpu_temp_c"].notna()]
     for pid, g in saude.groupby("probe_id"):
         mem_uso = 100 * (1 - g["mem_available_kb"] / g["mem_total_kb"])
         linhas.append({
@@ -741,7 +742,9 @@ def fig_consumo(ctx, saude):
 def tabela_falhas(ctx, ex):
     if ex is None or ex.empty:
         return
-    ex = ctx.filtrar(ex, "estudo")
+    ex = ctx.filtrar_alvos(ctx.filtrar(ex, "estudo"))
+    ex = ex[~((ex["measurement_type"] == "iperf3") & ex["target_probe"].fillna("").map(
+        lambda tp: bool(tp) and not ctx.intervalos(tp, "estudo")))] if "target_probe" in ex else ex
     linhas = []
     for (pid, tipo), g in ex.groupby(["probe_id", "measurement_type"]):
         linhas.append({"Sonda": ctx.rotulo(pid), "Tipo": tipo, "Execuções": len(g),
@@ -813,7 +816,8 @@ def main():
         if not he.empty:
             fig_http_etapas(ctx, he)
             fig_http_horario(ctx, he)
-            tabela_http(ctx, he, ex)
+            exv = ctx.filtrar_alvos(ctx.filtrar(ex, "estudo")) if ex is not None else None
+            tabela_http(ctx, he, exv)
             maior = he[he["https"]].nlargest(5, "tls_handshake_ms")
             for _, r in maior.iterrows():
                 ctx.nota(f"Maior TLS: {r['t'].strftime('%d/%m %H:%M')} {r['destino']} ({ctx.rotulo(r['probe_id'])}): "

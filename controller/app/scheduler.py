@@ -14,20 +14,42 @@ from collections import deque
 from datetime import datetime, timezone
 
 from . import coordination, models, planning, publisher
-from .config import IPERF3_SLACK_SECONDS, JOB_JITTER_PCT, SCHEDULER_TICK_SECONDS
-from .db import SessionLocal
+from sqlalchemy import text
+
+from .config import IPERF3_SLACK_SECONDS, JOB_JITTER_PCT, SCHEDULER_TICK_SECONDS, TASK_TTL_SECONDS
+from .db import SessionLocal, engine
 from .schemas import Plan
 
 log = logging.getLogger("scheduler")
 
 
-def _dispatch(specs, plan_id, plan_revision) -> int:
-    """Publica as tarefas no RabbitMQ e registra em task_instances."""
+def _resultados_recebidos(task_ids) -> set:
+    """task_id cujo resultado já foi gravado pela ingestão (qualquer status)."""
+    if not task_ids:
+        return set()
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text("SELECT task_id::text FROM measurement_runs "
+                     "WHERE task_id = ANY(CAST(:ids AS uuid[])) AND observed_at > now() - interval '2 hours'"),
+                {"ids": list(task_ids)},
+            ).all()
+        return {r[0] for r in rows}
+    except Exception as exc:  # noqa: BLE001 (banco indisponível: libera por tempo)
+        log.debug("iperf3: consulta de resultados falhou: %s", exc)
+        return set()
+
+
+def _dispatch(specs, plan_id, plan_revision, ids_out=None) -> int:
+    """Publica as tarefas no RabbitMQ e registra em task_instances.
+    Se ids_out for uma lista, recebe os task_id publicados."""
     if not specs:
         return 0
     now = datetime.now(timezone.utc)
     task_dicts = [publisher.task_to_dict(s, plan_id, plan_revision, now) for s in specs]
     published = publisher.publish(task_dicts)
+    if ids_out is not None:
+        ids_out.extend(d["task_id"] for d in task_dicts)
     db = SessionLocal()
     try:
         for d in task_dicts:
@@ -53,8 +75,12 @@ def _dispatch(specs, plan_id, plan_revision) -> int:
 class Iperf3Serializer:
     """Fila dos testes de vazão. Cada teste ocupa um conjunto de recursos
     (sondas e, no modo ``trecho``, os enlaces do caminho; ver coordination.py).
-    Um worker despacha apenas os testes cujos recursos estejam livres, reserva
-    esses recursos e os libera após (duração + folga)."""
+    Um worker despacha apenas os testes cujos recursos estejam livres e reserva
+    esses recursos até o resultado do teste chegar ao banco. Como o agente
+    executa as tarefas em sequência, o teste pode começar bem depois do
+    despacho; por isso a liberação não depende só do tempo. Se o resultado não
+    chegar (tarefa expirada ou sonda fora do ar), os recursos são liberados
+    após a duração somada à validade da tarefa e a uma folga."""
 
     def __init__(self, slack_seconds: int):
         self._lock = threading.Lock()
@@ -89,9 +115,37 @@ class Iperf3Serializer:
                     if self._busy.get(r) == rid:
                         del self._busy[r]
 
+    def _verificar_liberacoes(self):
+        """Libera as reservas cujo resultado chegou ou cujo prazo esgotou."""
+        agora = time.time()
+        with self._lock:
+            ativos = list(self._running.items())
+        if not ativos:
+            return
+        com_id = [e["task_id"] for _rid, e in ativos
+                  if e.get("task_id") and agora - e["_t0"] >= min(e["duration"], 5)]
+        recebidos = _resultados_recebidos(com_id)
+        for rid, e in ativos:
+            idade = agora - e["_t0"]
+            if e.get("task_id") and e["task_id"] in recebidos:
+                motivo = "resultado"
+            elif not e.get("task_id") and idade >= e["duration"] + self._slack:
+                motivo = "tempo"
+            elif idade >= e["duration"] + TASK_TTL_SECONDS + self._slack:
+                motivo = "prazo esgotado"
+            else:
+                continue
+            e["liberado_por"] = motivo
+            e["reservado_s"] = round(idade, 1)
+            self._release(rid)
+
     def _worker(self):
         while True:
             time.sleep(1)
+            try:
+                self._verificar_liberacoes()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("iperf3: falha ao verificar liberações: %s", exc)
             with self._lock:
                 pending = bool(self._queue)
             if not pending:
@@ -129,16 +183,21 @@ class Iperf3Serializer:
                         "waited_s": round(now - item["enqueued"], 1),
                         "blocked_by": item["blocked_by"],
                         "duration": item["duration"],
+                        "task_id": None,
+                        "_t0": time.time(),
                     }
                     self._running[rid] = entry
                     self._log.appendleft(entry)
                     ready.append((rid, item))
-                    threading.Timer(item["duration"] + self._slack, self._release, args=(rid,)).start()
                 self._queue = remaining
             for rid, item in ready:
                 s = item["spec"]
                 try:
-                    _dispatch([s], item["plan_id"], item["revision"])
+                    ids = []
+                    _dispatch([s], item["plan_id"], item["revision"], ids)
+                    with self._lock:
+                        if rid in self._running:
+                            self._running[rid]["task_id"] = ids[0] if ids else None
                     log.info("iperf3 despachado (%s): %s -> %s", mode, s.source_probe, s.target_probe or s.target)
                 except Exception as exc:  # noqa: BLE001
                     log.warning("iperf3: falha ao publicar: %s", exc)
@@ -153,7 +212,7 @@ class Iperf3Serializer:
                                               f"{self._running[rid]['target_probe'] or self._running[rid]['target']}"}
                     for r, rid in sorted(self._busy.items()) if rid in self._running
                 ],
-                "running": list(self._running.values()),
+                "running": [{k: v for k, v in e.items() if not k.startswith("_")} for e in self._running.values()],
                 "queue": [
                     {"source_probe": i["spec"].source_probe,
                      "target_probe": i["spec"].target_probe,
@@ -163,7 +222,7 @@ class Iperf3Serializer:
                      "blocked_by": i["blocked_by"]}
                     for i in self._queue
                 ],
-                "recent": list(self._log)[:50],
+                "recent": [{k: v for k, v in e.items() if not k.startswith("_")} for e in list(self._log)[:50]],
             }
 
 
