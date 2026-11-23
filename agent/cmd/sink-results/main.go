@@ -1,5 +1,5 @@
 // Comando sink-results: consome e imprime os resultados publicados pelos probes.
-// Simula o servico de ingestao (que na Fase 5 gravara no PostgreSQL/TimescaleDB).
+// Ferramenta de teste que simula o servico de ingestao.
 //
 // Uso:
 //

@@ -177,7 +177,7 @@ def main():
         ax.plot(xs, xs * PERFIL_MSG_S, color="#999999", lw=0.9, ls=":", label="Carga projetada")
         lim = cap / PERFIL_MSG_S
         ax.axvline(lim, color="#777777", ls=":", lw=0.8)
-        ax.text(lim * 1.03, cap * 0.35, f"cerca de\n{n(lim, 0)} sondas", fontsize=7, color="#555555")
+        ax.text(lim * 1.03, cap * 0.35, "cerca de\n" + f"{round(lim, -1):,.0f}".replace(",", ".") + " sondas", fontsize=7, color="#555555")
         ax.set_ylim(0, cap * 1.2)
         ax.set_xlim(8, 2200)
     ax.set_xscale("log")

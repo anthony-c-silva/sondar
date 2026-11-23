@@ -7,9 +7,9 @@
 //	inventory   coleta e imprime o inventario local
 //	version     imprime a versao
 //
-// Fase 2: as tarefas chegam por um diretorio-spool local (TASKS_DIR). Na Fase 3
-// esse spool sera substituido por um consumidor RabbitMQ; o restante do fluxo
-// (executar -> persistir no SQLite -> publicar) permanece igual.
+// As tarefas chegam pelo RabbitMQ (fila probe.<id>.commands). O diretorio-spool
+// local (TASKS_DIR) continua disponivel para testes sem broker. Em ambos os casos
+// o fluxo e o mesmo: executar -> persistir no SQLite -> publicar -> confirmar.
 package main
 
 import (

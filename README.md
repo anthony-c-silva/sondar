@@ -1,168 +1,127 @@
-# Plataforma Distribuída de Monitoramento Ativo da Rede da UFSM
+# SONDAR
 
-![CI](https://github.com/anthony-c-silva/ufsm-monitor/actions/workflows/ci.yml/badge.svg)
+**Sistema Orquestrado de Nós Distribuídos para Avaliação de Redes.** Plataforma distribuída de
+código aberto para o monitoramento ativo de redes de campus.
 
-Plataforma de **monitoramento ativo** de rede formada por _probes_ homogêneos (executáveis em
-Raspberry Pi) que realizam medições — ICMP, vazão (iperf3), DNS, HTTP/HTTPS e caminho — segundo
-**planos declarativos**, orquestrada por um controlador central que valida os planos, distribui as
-tarefas, consolida os resultados em séries temporais e os apresenta em dashboards.
+Sondas de baixo custo (Raspberry Pi) executam medições de latência, perda, vazão, resolução de
+nomes, acesso web e caminho, definidas em planos de medição. Um controlador central valida os
+planos, agenda as tarefas, coordena os testes de vazão e grava os resultados como séries
+temporais, exibidas em um painel web com acesso restrito. Todos os dados ficam no servidor da
+própria instituição.
 
-Trabalho de Conclusão de Curso — Ciência da Computação, Universidade Federal de Santa Maria (UFSM).
-
-> **Escopo.** A plataforma coleta medições de forma confiável, registra séries históricas e as
-> apresenta para observação operacional. O sistema **observa e apresenta** os dados (disponibilidade,
-> latência, perda, vazão, DNS, HTTP/HTTPS, caminho); **não** infere causa-raiz automaticamente.
-
-## Estado do projeto
-
-Implementação concluída e validada de ponta a ponta (Fases 1 a 6 da proposta), executando em
-contêineres. Restam atividades não relacionadas ao código: implantação nos Raspberry Pi físicos,
-avaliação experimental em escala e escrita do TCC.
+Trabalho de Conclusão de Curso em Ciência da Computação, Universidade Federal de Santa Maria
+(UFSM), 2026. Autor Anthony Carlos da Silva, orientador Prof. Carlos Raniery.
 
 ## Recursos
 
-- **Medições ativas:** ICMP, DNS, HTTP/HTTPS (com decomposição em fases via `httptrace`), traceroute
-  e vazão (iperf3). Cada resultado é emitido em um envelope **JSON normalizado** (contratos em `contracts/`).
-- **Probes homogêneos:** cada probe não apenas mede como também **oferece serviços de destino**
-  (servidor iperf3, servidor DNS e endpoint HTTP), permitindo medição **mútua** entre probes e com o
-  servidor — topologias em **estrela** e **malha**.
-- **Planos declarativos (JSON):** o controlador **valida** o plano (existência de probes, allowlist de
-  destinos, período mínimo, limites) e o **expande** em tarefas concretas, materializando a malha `n(n-1)`.
-- **Orquestração assíncrona:** distribuição de comandos e resultados via **RabbitMQ**, com _publisher
-  confirms_. No probe, uma **outbox SQLite** persiste o resultado antes da publicação, garantindo
-  tolerância a falhas de rede ou do broker.
-- **Scheduler automático:** os planos habilitados são executados periodicamente (`period_seconds`, com
-  _jitter_), sem acionamento manual. Os testes de **iperf3 são serializados** (reserva de origem e
-  destino), evitando que um probe participe de dois testes de vazão simultâneos.
-- **Consolidação e visualização:** ingestão em **PostgreSQL/TimescaleDB** (hypertables) e um
-  **dashboard web próprio** (React).
-- **Dashboard próprio (web):** front-end React/Vite que **substitui o Grafana** — com **autenticação**
-  (login, JWT + refresh, papel ADMIN), tema **escuro** e responsivo: cadastro de probes/destinos/grupos,
-  **construtor visual de planos**, **séries temporais**, **matriz probe × destino** e **traceroute**,
-  consumindo a API do controlador.
-- **Segurança:** todas as rotas da API exigem login; senha com hash bcrypt; segredo do JWT gerado e
-  persistido; rate-limit de login; usuário `admin` inicial com troca de senha obrigatória.
-- **Empacotamento:** toda a plataforma sobe em contêineres; o agente é um binário Go **cross-compilável
-  para ARM** (Raspberry Pi), instalável como serviço `systemd`.
+- **Medições ativas.** ICMP (`fping`), vazão (`iperf3`), DNS (`dig`), caminho (`mtr`) e acesso
+  web com o tempo separado em resolução de nomes, conexão TCP, negociação TLS e espera pelo
+  primeiro byte (`httptrace`, com conexão nova a cada medição).
+- **Sondas homogêneas.** Cada sonda mede e também atua como destino (servidor iperf3, DNS e
+  HTTP), o que permite topologias em estrela e em malha.
+- **Planos de medição em JSON.** O controlador valida o plano (sondas existentes, lista de
+  destinos permitidos, período mínimo e limites) e o expande nas tarefas de cada sonda.
+- **Coordenação dos testes de vazão.** Cada teste reserva as sondas e, no modo por trecho, os
+  enlaces compartilhados do caminho, cadastrados pelo operador. Dois testes que usam o mesmo
+  recurso não rodam juntos, e a reserva é liberada quando o resultado chega ao banco. Modos
+  `sonda`, `trecho` e `global`.
+- **Entrega confiável.** Tarefas e resultados trafegam pelo RabbitMQ com confirmação de
+  publicação. Na sonda, uma fila local em SQLite guarda o resultado até a entrega.
+- **Saúde das sondas.** Temperatura, frequência e uso do processador, limitação térmica,
+  memória, tempo ligado, velocidade do enlace e consumo do próprio agente, atualizados a cada
+  minuto.
+- **Painel web.** Login com troca de senha obrigatória, cadastro de sondas, destinos, grupos e
+  enlaces, construtor de planos, séries temporais, matriz sonda × destino, traceroute e saúde
+  das sondas.
 
-## Arquitetura (visão geral)
+## Arquitetura
+
+A plataforma segue a divisão funcional do modelo LMAP (RFC 7594).
 
 ```
-Administração / visualização
+Painel web (React/Vite + Nginx)
+        │  API REST com autenticação
+        ▼
+Controlador (Python + FastAPI)   planos, validação, agendamento, coordenação da vazão
         │
         ▼
-Controlador (Python + FastAPI)   ── inventário, planos JSON, validação/expansão, scheduler, API
+RabbitMQ (AMQP)                  tarefas e resultados
         │
         ▼
-RabbitMQ (barramento AMQP)       ── comandos e resultados
+Sondas (agente em Go)            executam as medições e atuam como destino
         │
         ▼
-Agentes / probes (Go)            ── executam e OFERECEM medições; outbox SQLite; publicam resultados
+Ingestão (Python)                consome os resultados
         │
         ▼
-Serviço de Ingestão (Python)     ── consome resultados
-        │
-        ▼
-PostgreSQL + TimescaleDB         ── inventário, planos e séries temporais
-        │
-        ▼
-Grafana                          ── dashboards e matriz probe × destino
+PostgreSQL + TimescaleDB         inventário, planos e séries temporais
 ```
 
-Além do fluxo de controle acima, os probes realizam **medições entre si e com o servidor** (planos de
-medição). A visão completa está nos diagramas C4 em [`docs/arquitetura/`](docs/arquitetura/) (contexto,
-contêineres e componentes) e no diagrama de sequência interativo do fluxo de execução.
+Os diagramas C4 e de sequência estão em [`docs/arquitetura/`](docs/arquitetura/).
 
 ## Estrutura do repositório
 
-| Caminho             | Conteúdo                                                                                                   |
-| ------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `contracts/`        | Formatos de mensagem em **JSON Schema** (fonte única de verdade) e exemplos                                 |
-| `prototypes/`       | Protótipos de medição em Go (stdlib), um por tipo — validação isolada das medições (Fase 1)                |
-| `agent/`            | Agente `ufsm-monitor-agent` (Go): executor, outbox SQLite, servidores iperf3/DNS, `/health`, `systemd`      |
-| `controller/`       | Controlador (Python/FastAPI): inventário, planos, validação/expansão, publicação, **scheduler** e ingestão |
-| `infra/`            | (legado) Provisionamento do Grafana — não é mais usado; o dashboard próprio o substitui                    |
-| `web/`              | **Dashboard web** (React/Vite + Nginx): login, inventário, planos, séries, matriz e traceroute — substitui o Grafana |
-| `scripts/`          | Utilitários (validador de resultados, `demo-seed.sh`)                                                       |
-| `docs/`             | Arquitetura (C4 + sequência), cronograma, relatório de progresso e revisão bibliográfica                   |
-| `docker-compose.yml`| Stack completa para execução/demonstração em contêineres                                                    |
+| Caminho              | Conteúdo                                                                       |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `agent/`             | Agente em Go, cross-compilado para ARM e instalado como serviço `systemd`      |
+| `controller/`        | Controlador e ingestão (Python/FastAPI), com testes                            |
+| `web/`               | Painel web (React/Vite servido por Nginx)                                      |
+| `contracts/`         | Formatos das mensagens em JSON Schema, compartilhados entre agente e controlador |
+| `deploy/`            | Atualização automática do servidor a cada `git push` com CI aprovado           |
+| `tools/`             | Teste de escalabilidade, experimento de interferência e análise do estudo de caso |
+| `prototypes/`        | Protótipos iniciais das medições em Go                                         |
+| `scripts/`           | Utilitários (validador de resultados, `demo-seed.sh`)                          |
+| `docs/`              | Diagramas da arquitetura, guia de implantação física e material de referência  |
 
-## Stack tecnológica
+## Execução local com Docker
 
-- **Agente:** Go — binário único, cross-compila para ARM, controle de subprocessos, AMQP e `httptrace`.
-- **Controlador e ingestão:** Python + FastAPI — API/CRUD e validação de planos com Pydantic.
-- **Contratos:** JSON Schema, independentes de linguagem, para evitar divergência entre agente (Go) e
-  controlador (Python).
-- **Broker:** RabbitMQ. **Banco:** PostgreSQL + TimescaleDB. **Dashboards:** Grafana.
-
-## Execução via Docker
-
-Um único comando sobe a stack inteira (infraestrutura + controlador + ingestão + dois agentes de
-demonstração). Pré-requisito: **Docker Desktop** (com integração WSL, no Windows).
+Pré-requisito: Docker com Docker Compose.
 
 ```bash
-# na raiz do repositório
-
-# Demonstração local (inclui dois agentes de exemplo, via profile "demo"):
+# Demonstração local, com duas sondas de exemplo em contêiner
 docker compose --profile demo up -d --build
-docker compose ps                # confirma que os serviços subiram
-
-# Servidor de produção (apenas o núcleo, sem os agentes de exemplo):
-# docker compose up -d --build   # os probes reais são os Raspberry Pi (ver docs/DEPLOY-FISICO.md)
-```
-
-Em seguida, o script de _seed_ registra os probes, autoriza os destinos, cria e roda o plano de malha:
-
-```bash
 bash scripts/demo-seed.sh
+
+# Servidor de produção, sem as sondas de exemplo
+docker compose up -d --build
 ```
 
-Endpoints:
+Endereços:
 
-- **Dashboard (web):** http://localhost:8080 — login inicial **admin / admin** (troca de senha
-  obrigatória). Inventário, planos, séries, matriz e traceroute (**substitui o Grafana**)
-- **Controlador / API (Swagger):** http://localhost:8000/docs
-- **RabbitMQ (Management):** http://localhost:15672 (guest/guest)
-- **Serviços oferecidos por cada probe:** http://localhost:8081/services e http://localhost:8082/services
+- Painel web: http://localhost:8080 (usuário inicial `admin` / `admin`, troca de senha
+  obrigatória no primeiro acesso)
+- API e documentação Swagger: http://localhost:8000/docs
+- RabbitMQ Management: http://localhost:15672
 
-O plano `controller/examples/plan-mesh.json` exercita a **malha**: `agent-a` e `agent-b` medem um ao
-outro (ICMP, DNS, iperf3) além dos destinos externos, demonstrando a medição mútua entre probes.
+## Implantação
 
-Comandos úteis:
+- **Servidor central.** Executa os contêineres do controlador, da ingestão, do RabbitMQ, do
+  TimescaleDB e do painel. A pasta [`deploy/`](deploy/README.md) traz o serviço que atualiza o
+  servidor a cada `git push`.
+- **Sondas.** Cada Raspberry Pi executa apenas o binário do agente (`cd agent && make
+  build-arm64`) como serviço `systemd`, com o arquivo `agent.env` apontando para o RabbitMQ do
+  servidor. Não precisa de Docker nem do repositório.
 
-```bash
-docker compose logs -f controller                   # acompanhar o scheduler em ação
-docker compose up -d rabbitmq timescaledb grafana   # somente a infraestrutura (dev com apps na venv)
-docker compose down                                 # parar (preserva os volumes/dados)
-docker compose down -v                              # parar e APAGAR os dados
-```
+O passo a passo está em [`docs/DEPLOY-FISICO.md`](docs/DEPLOY-FISICO.md).
 
-## Implantação em produção (monorepo, deploy por alvo)
+### Segurança
 
-O repositório é um **monorepo**, mas isso não implica um único artefato de implantação. Cada parte é
-construída e implantada em seu alvo:
+As credenciais do `docker-compose.yml` (`guest/guest` no RabbitMQ e `ufsm/ufsm` no banco) são
+para demonstração. Em produção, troque essas senhas, defina `SECRET_KEY`, restrinja as portas
+5432 e 15672 ao próprio servidor e crie no RabbitMQ um usuário próprio para as sondas.
 
-- **Servidor central:** executa a stack de orquestração **em contêineres** (controlador, ingestão,
-  RabbitMQ, TimescaleDB e Grafana) — o mesmo `docker compose`, sem os agentes de demonstração.
-- **Cada Raspberry Pi (probe físico):** executa **apenas o binário Go do agente**, cross-compilado para
-  ARM (`cd agent && make build-arm64`) e instalado como serviço `systemd` (ver `agent/deploy/`). O
-  dispositivo não requer Docker nem o repositório completo — basta o binário, o arquivo `.service` e o
-  `agent.env`, com `AMQP_URL` apontando para o RabbitMQ do servidor.
+## Avaliação
 
-O monorepo se justifica porque os **contratos JSON Schema** (`contracts/`) são compartilhados entre
-agente e controlador: fonte única, alterações de formato atômicas em um só commit e menor esforço de
-manutenção. A separação em múltiplos repositórios só se justificaria com equipes grandes e ciclos de
-release independentes.
+A plataforma foi implantada no Centro de Tecnologia da UFSM com três sondas e um servidor
+central. Os scripts usados na avaliação do TCC estão em [`tools/`](tools/).
 
-> **Passo a passo do deploy físico** (servidor central + Raspberry Pi como probe):
-> [`docs/DEPLOY-FISICO.md`](docs/DEPLOY-FISICO.md). Para o servidor se atualizar sozinho a cada
-> `git push` (pull + rebuild, sem abrir portas), veja [`deploy/README.md`](deploy/README.md).
+- [`tools/estudo-de-caso/`](tools/estudo-de-caso/) exporta os dados do banco e gera as tabelas e
+  figuras do estudo de caso.
+- [`tools/loadtest/`](tools/loadtest/) simula até milhares de sondas para medir a escalabilidade
+  do servidor.
+- [`tools/interferencia/`](tools/interferencia/) compara testes de vazão simultâneos e
+  coordenados entre sondas que compartilham um enlace.
 
-## Documentação
+## Licença
 
-- **Planejamento e registro:** [`PLANEJAMENTO-INICIAL.md`](PLANEJAMENTO-INICIAL.md) · [`DIARIO-DE-BORDO.md`](DIARIO-DE-BORDO.md)
-- **Arquitetura:** diagramas C4 (contexto, contêineres, componentes) e o diagrama de sequência
-  interativo do fluxo de execução em [`docs/arquitetura/`](docs/arquitetura/)
-- **Acompanhamento:** relatório de progresso e cronograma em [`docs/`](docs/)
-- **Revisão bibliográfica:** [`docs/revisao-bibliografica/`](docs/revisao-bibliografica/)
-- **Documentação por módulo:** [`agent/README.md`](agent/README.md) · [`controller/README.md`](controller/README.md) · [`infra/README.md`](infra/README.md)
+Distribuído sob a licença MIT. Veja [`LICENSE`](LICENSE).

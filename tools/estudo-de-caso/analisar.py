@@ -262,7 +262,10 @@ def sombrear(ax, ctx, ini, fim):
         dia += pd.Timedelta(days=1)
 
 
-def eixo_datas(ax, ctx, intervalo=1):
+def eixo_datas(ax, ctx, intervalo=None):
+    if intervalo is None:
+        ini, fim = [mdates.num2date(x) for x in ax.get_xlim()]
+        intervalo = 2 if (fim - ini).days > 9 else 1
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=intervalo, tz=ctx.tz))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%d/%m", tz=ctx.tz))
     ax.xaxis.set_minor_locator(mdates.HourLocator(byhour=[12], tz=ctx.tz))

@@ -1,5 +1,5 @@
 // Comando publish-task: publica uma tarefa (arquivo JSON) na fila de comandos de
-// um probe. Simula o controlador enviando um comando (ate a Fase 4 existir).
+// um probe. Ferramenta de teste que simula o controlador enviando um comando.
 //
 // Uso:
 //

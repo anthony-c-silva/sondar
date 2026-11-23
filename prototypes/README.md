@@ -1,4 +1,4 @@
-# Fase 1 — Protótipos de medição
+# Protótipos de medição (Fase 1)
 
 Cada protótipo encapsula (ou implementa) **uma** medição e imprime no `stdout` um
 **envelope JSON** conforme [`../contracts/result.schema.json`](../contracts/result.schema.json).
@@ -74,7 +74,7 @@ Valide assim:
 ./bin/icmp -target 1.1.1.1 | python3 ../scripts/validate_result.py
 ```
 
-## Observações de projeto (para o TCC)
+## Observações de projeto
 
 - **ICMP nunca guarda só a média** — a média esconde picos; registramos
   min/avg/max, jitter e percentis (spec 6.1).

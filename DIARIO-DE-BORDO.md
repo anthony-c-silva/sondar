@@ -1,4 +1,4 @@
-# Diário de Bordo — Plataforma Distribuída de Monitoramento da Rede da UFSM
+# Diário de Bordo — SONDAR
 
 Registro cronológico de decisões, progresso e pendências. Serve de matéria-prima
 para a escrita do TCC (especialmente as seções de decisões de projeto e avaliação).
@@ -42,7 +42,7 @@ para a escrita do TCC (especialmente as seções de decisões de projeto e avali
 ## 2026-07-05 — Planejamento + início da Fase 1
 
 **Feito**
-- Documento `PLANEJAMENTO-INICIAL.md` (stack, roadmap, detalhamento Fases 1 e 2).
+- Planejamento inicial (stack, roadmap, detalhamento das Fases 1 e 2).
 - Scaffold do repositório: `contracts/`, `prototypes/`, `scripts/`, `.gitignore`.
 - Contratos JSON Schema: `contracts/result.schema.json` e `contracts/task.schema.json`.
 - Pacote Go compartilhado `prototypes/internal/model` (envelope + UUID v4 + Emit).
@@ -59,8 +59,8 @@ para a escrita do TCC (especialmente as seções de decisões de projeto e avali
 **Validação**
 - 9 JSONs bem-formados; 6 exemplos de resultado validados contra o schema
   (jsonschema) — OK.
-- **Pendente:** compilar e rodar o Go na máquina real (o ambiente de apoio não
-  tinha Go/rede). Rodar: `cd prototypes && go vet ./... && make build`.
+- **Pendente:** compilar e rodar o Go no ambiente de desenvolvimento:
+  `cd prototypes && go vet ./... && make build`.
 
 **Próximos passos**
 - [ ] Instalar Go + `fping iperf3 dnsutils mtr-tiny` na máquina de dev.
@@ -93,7 +93,7 @@ para a escrita do TCC (especialmente as seções de decisões de projeto e avali
 - `Makefile` (build + cross-compile arm64/armv7), README do agente, tarefas de exemplo.
 - Root `README.md`, `.gitignore` atualizado, instruções de git/push.
 
-**Pendências (precisam da sua máquina — sem Go/rede no ambiente de apoio)**
+**Pendências**
 - [ ] `cd agent && go mod tidy` (baixa `modernc.org/sqlite`, gera `go.sum`).
 - [ ] `go vet ./...` e `make build` (agent e prototypes).
 - [ ] Testar: `run-task` de cada tipo; `serve` + `curl /health` + spool + inspeção do SQLite.
@@ -225,7 +225,7 @@ TTFB/total, DNS, e a **matriz Origem × Destino** (tabela com cores por RTT/perd
 no TimescaleDB (confirmado no `psql`: icmp/http/dns com métricas). Dashboard renderiza
 os gráficos e a matriz colorida.
 
-**Dois perrengues resolvidos (úteis pra reprodução/escrita):**
+**Dois problemas resolvidos (úteis para reprodução e escrita):**
 - **Grafana 11:** o banco do datasource Postgres precisa ir em `jsonData.database`
   (não no campo `database` do topo) — senão dá "no default database configured".
 - **Relógio do WSL adiantado:** o container gravava timestamps "no futuro" e o
@@ -264,7 +264,7 @@ fio/celular) e demo com Docker na próxima terça. Correção do C4 (malha) já 
 **manter monorepo**: em produção, o servidor central roda a stack em contêineres e cada
 Raspberry Pi roda só o binário Go do agente via systemd (mesmo repo, deploy por alvo).
 
-**Perrengues resolvidos:** (a) `go.mod` fixou `go 1.25.0` (dep exige) → imagem do build
+**Problemas resolvidos:** (a) `go.mod` fixou `go 1.25.0` (dep exige) → imagem do build
 subida para `golang:1.25` + `GOTOOLCHAIN=auto`; (b) `bash` do PowerShell caía na distro
 WSL errada → rodar tudo pelo terminal Ubuntu; (c) senha do Grafana persistida no volume →
 `grafana-cli admin reset-admin-password admin`.
@@ -274,7 +274,7 @@ plano `demo-mesh` expandiu em 10 tarefas (icmp 4, dns 2, iperf3 2, http 2). No `
 `icmp_measurements` mostrou **probe-a ↔ probe-b medindo um ao outro** (0.1–0.3 ms) além
 dos externos (1.1.1.1 ~14 ms). Medição mútua comprovada de ponta a ponta.
 
-**Pendências (terça / ações do aluno):** pegar o Raspberry Pi 4 com o professor;
+**Pendências (até a próxima reunião):** pegar o Raspberry Pi 4 com o professor;
 selecionar 10 artigos; demonstrar rodando; corrigir a narrativa do fluxo de dados
 (tolerância a falha = outbox SQLite no agente; TimescaleDB = armazenamento final, não
 "backup intermediário").
@@ -324,7 +324,7 @@ e HTTP/DNS/traceroute. **~103 medições/24 h, 99 % de sucesso, 100 tarefas publ
 **outbox SQLite** drenou registros acumulados quando o broker subiu — tolerância a falha
 (Fase 3) comprovada em campo.
 
-**Perrengues resolvidos:** (a) **relógio do servidor** — bateria CMOS descarregada (RTC em
+**Problemas resolvidos:** (a) **relógio do servidor** — bateria CMOS descarregada (RTC em
 2013) fazia o clock cair no passado → o Git falhava a validação TLS do GitHub
 (`SSL certificate verification failed`); acertado com `timedatectl` (NTP + ajuste manual);
 (b) **CI do agente vermelho** — `go.mod` não declarava `github.com/miekg/dns` (o Dockerfile
@@ -346,3 +346,36 @@ aponta errado — pedir reserva); volume de tráfego desprezível (o que mais ch
 (`TASK_TTL_SECONDS=90` vs. fila serial); reserva de DHCP para o Pi; trocar a senha do usuário
 `probe`; avisar o NTI da UFSM; rodar `malha-vazao` manualmente (iperf3) com a rede quieta;
 serialização do iperf3 na malha (as duas direções não devem rodar simultâneas).
+
+---
+
+## 2026-11 — SONDAR: coordenação por trecho, saúde das sondas e avaliação
+
+**Nome e painel.** A plataforma passou a se chamar **SONDAR** (Sistema Orquestrado de Nós
+Distribuídos para Avaliação de Redes), com a marca no login, no cabeçalho e no favicon.
+
+**Saúde das sondas (06/11).** O inventário enviado a cada 60 s passou a incluir temperatura,
+frequência e uso do processador, limitação térmica, memória, tempo ligado, velocidade do enlace
+e consumo do próprio agente. O painel mostra esses dados na página de sondas.
+
+**Coordenação por trecho.** Cada teste de vazão reserva as sondas e, no modo `trecho`, os
+enlaces cadastrados que o caminho atravessa (diferença simétrica das cadeias de uplink das duas
+sondas). Modos `sonda`, `trecho` e `global`, guardados em `app_settings`. A reserva passou a ser
+liberada quando o resultado chega ao banco, com prazo máximo de segurança. Antes ela era
+liberada pela duração prevista, e a operação mostrou testes sobrepostos porque o agente executa
+as tarefas em sequência e o teste começava depois do despacho.
+
+- **DP-16 — HTTP com conexão nova.** O teste web desliga o reaproveitamento de conexões
+  (`DisableKeepAlives`), para que cada execução meça resolução, conexão e TLS.
+
+**Implantação no Centro de Tecnologia.**
+- `probe-ct-01` no anexo C desde 10/11, em porta Fast Ethernet (link de 100 Mb/s).
+- `probe-ct-02` (Pi 4B) na sala da TI desde 16/11, no mesmo switch gigabit do servidor.
+- `probe-ct-03` (Pi 3B) usada no experimento de interferência.
+
+**Avaliação.**
+- Teste de escalabilidade em 16 e 17/11 com até 1.000 sondas simuladas (`tools/loadtest/`).
+- Experimento de interferência em 19/11 (`tools/interferencia/`).
+- Estudo de caso analisado com `tools/estudo-de-caso/`. Em 17/11, entre 19h29 e 19h39, os
+  destinos fora do CT ficaram inacessíveis nas três sondas ao mesmo tempo, enquanto a malha
+  interna continuou com 100 % de sucesso.

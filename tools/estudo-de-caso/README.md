@@ -22,13 +22,13 @@ A data final é exclusiva (2026-11-18 inclui todo o dia 17). Para trazer o
 arquivo para o computador (PowerShell):
 
 ```powershell
-scp anthony@192.168.129.200:/opt/ufsm-monitor/tools/estudo-de-caso/dados.tgz C:\TCC\notas-tcc\
+scp <usuario>@<IP-SERVIDOR>:/opt/ufsm-monitor/tools/estudo-de-caso/dados.tgz .
 ```
 
 ## 2. Conferir o config.json
 
 - `sondas.*.estudo`: intervalo em que cada sonda está no ponto do estudo.
-  A ct-02 deve começar no horário em que a VLAN da porta 19 foi corrigida.
+  Uma sonda que mudou de ponto deve começar no horário da instalação no ponto final.
 - `sondas.*.referencia`: intervalo de comparação (a ct-01 na rede da TI, antes
   de ir para o anexo C).
 - `horario_uso`: dias e horas considerados de uso (padrão: segunda a sexta,
@@ -74,4 +74,4 @@ python3 simular.py dados_simulados
 python3 analisar.py dados_simulados --saida resultados_simulados
 ```
 
-Os dados simulados não são medições reais e não devem entrar no TCC.
+Os dados simulados não são medições reais e servem apenas para testar os scripts.

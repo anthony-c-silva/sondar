@@ -61,7 +61,7 @@ sudo ufw allow 8000/tcp    # API (opcional)
 > outras máquinas da LAN acessarem, permita o app no **Firewall do Windows**. Para papel de
 > servidor, um **Linux (Ubuntu)** é mais simples e é o recomendado.
 
-**1.5** No **dashboard → Inventário**, cadastre:
+**1.5** No painel, nas páginas **Probes** e **Destinos**, cadastre:
 
 - **Probe:** `probe_id = probe-ct-01` (o mesmo que você porá no Pi) e **endereço = IP do Pi**
   na LAN (ex.: `192.168.0.50`). O endereço é o que permite a **malha** (outros probes medirem este).
@@ -119,6 +119,7 @@ sudo install -m 0755 /tmp/ufsm-monitor-agent /usr/local/bin/
 sudo mkdir -p /etc/ufsm-monitor
 sudo cp /tmp/agent.env.example /etc/ufsm-monitor/agent.env
 sudo nano /etc/ufsm-monitor/agent.env
+sudo chmod 600 /etc/ufsm-monitor/agent.env   # o arquivo guarda a senha do RabbitMQ
 ```
 
 Ajuste no `agent.env`:
@@ -196,6 +197,9 @@ privilegiada já está no arquivo `.service`.
   hash bcrypt; rate-limit contra força bruta.
 - **Segredo do JWT:** gerado e persistido automaticamente. Para fixá-lo por ambiente, defina
   `SECRET_KEY` no serviço `controller` do `docker-compose.yml`.
+- **Portas internas:** o banco (5432) e a interface do RabbitMQ (15672) não precisam ficar
+  acessíveis pela rede. Restrinja-as ao próprio servidor no firewall ou removendo o mapeamento
+  de portas no `docker-compose.yml`, e troque as senhas padrão (`guest`, `ufsm`).
 - **HTTPS (recomendado):** como trafega senhas/tokens, o ideal é servir o dashboard atrás de **TLS**
   (terminar no Nginx do serviço `web` — certificado autoassinado para a rede interna, ou Let's Encrypt
   se houver domínio).
@@ -206,7 +210,7 @@ privilegiada já está no arquivo `.service`.
 | --- | --- |
 | Agente não conecta no RabbitMQ (`ACCESS_REFUSED`) | Usando `guest` remoto. Use o usuário `probe` (passo 1.3) no `AMQP_URL`. |
 | Agente não conecta (timeout) | Firewall do servidor bloqueando 5672, ou IP errado no `AMQP_URL`. |
-| Probe não aparece no inventário | Ele não se auto-cadastra: cadastre em **Inventário** com o mesmo `probe_id`. |
+| Probe não aparece no painel | Ele não se auto-cadastra: cadastre em **Probes** com o mesmo `probe_id`. |
 | Sem dados em Séries/Matriz | Rode um plano e aguarde o período; veja `docker compose logs ingestion` no servidor. |
 | Erro ao subir servidor DNS | Porta 53 ocupada pelo `systemd-resolved` — use `DNS_SERVER=off` ou a seção Opcional. |
 | iperf3 probe→probe falha | Instale `iperf3` no Pi e libere a porta 5201 no firewall. |

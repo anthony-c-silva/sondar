@@ -1,6 +1,6 @@
 [Unit]
-Description=UFSM Distributed Monitoring Agent
-Documentation=https://github.com/anthonycarlosp7/ufsm-monitor-agent
+Description=SONDAR - agente de medição
+Documentation=https://github.com/anthony-c-silva/sondar
 After=network-online.target
 Wants=network-online.target
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Auto-deploy do SERVIDOR CENTRAL (Opção 1 — pull + rebuild), com trava de CI.
+# Atualização automática do SERVIDOR CENTRAL (pull + rebuild), com trava de CI.
 #
 # Puxa o código novo do GitHub e reconstrói a stack em Docker, mas SÓ se o
 # workflow de CI (.github/workflows/ci.yml) daquele commit tiver concluído com

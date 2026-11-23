@@ -1,41 +1,44 @@
-# web — Dashboard da plataforma (React + Vite)
+# Painel web do SONDAR (React + Vite)
 
-Front-end que **substitui o Grafana**, com **login/autenticação**, tema **escuro**, layout
-**responsivo**, fonte **Inter** e ícones **lucide-react**. Dá ao usuário final controle sobre
-a plataforma (inventário e planos) e a visualização dos dados coletados.
+Interface de administração e visualização da plataforma, com login, tema escuro, layout
+responsivo, fonte Inter e ícones `lucide-react`.
 
 ## Telas
 
-- **Login:** usuário/senha; primeiro acesso **admin / admin** com **troca de senha obrigatória**.
-- **Visão geral:** contadores, status do scheduler e atividade recente.
-- **Inventário:** cadastrar/remover probes, destinos (allowlist) e grupos.
-- **Planos:** construtor visual — quais probes medem o quê (ICMP, iperf3, DNS, HTTP, traceroute),
-  período, malha/estrela; validar, criar, habilitar e rodar.
-- **Séries:** gráficos temporais por métrica (latência, perda, vazão, DNS, HTTP).
-- **Matriz & status:** matriz probe×destino, saúde dos probes e **caminho (traceroute)**.
-- **Usuários:** criar/remover usuários (papel único ADMIN).
+- **Login:** no primeiro acesso, `admin` / `admin`, com troca de senha obrigatória.
+- **Visão geral:** contadores, estado do agendador e atividade das últimas 24 horas.
+- **Probes:** cadastro das sondas, estado de conexão e saúde (temperatura, CPU, memória,
+  limitação térmica, velocidade do enlace), com gráficos por sonda.
+- **Destinos:** lista de destinos externos permitidos.
+- **Grupos:** grupos de sondas usados nos planos.
+- **Planos:** construtor visual dos planos de medição (tipo de teste, sondas, destinos,
+  período, estrela ou malha), importação de JSON, validação, edição e execução imediata.
+- **Enlaces:** cadastro dos enlaces compartilhados, cadeia de uplink de cada sonda e modo de
+  coordenação dos testes de vazão.
+- **Séries:** séries temporais por métrica (latência, perda, vazão, DNS e etapas do HTTP).
+- **Matriz & status:** matriz sonda × destino e caminho (traceroute).
+- **Usuários:** criação e remoção de usuários.
 
-Recursos de UX: **auto-refresh** (botão no topo, 30 s), menu de usuário (trocar senha / sair),
-sidebar retrátil no celular.
+Os painéis se atualizam a cada 30 s quando a atualização automática está ligada.
 
 ## Autenticação
 
-O front guarda um **access token** (curto) e um **refresh token** (rotativo). O access vai no
-header `Authorization`; ao expirar, o front renova automaticamente pelo refresh. Ao trocar a
-senha, as outras sessões são encerradas. Tokens ficam em `localStorage`.
+O painel guarda um token de acesso de curta duração e um token de renovação rotativo. O token
+de acesso vai no cabeçalho `Authorization` e, quando expira, é renovado automaticamente. Ao
+trocar a senha, as outras sessões do usuário são encerradas.
 
-## Como a API é acessada
+## Acesso à API
 
-O front chama `/api/...`. Em **desenvolvimento**, o Vite faz proxy de `/api` para o
-controlador (`http://localhost:8000`); em **produção** (contêiner), o Nginx faz o mesmo proxy
-para `http://controller:8000`. Sem CORS, origem única.
+O painel chama `/api/...`. Em desenvolvimento, o Vite encaminha `/api` para o controlador em
+`http://localhost:8000`. Em produção, o Nginx do contêiner faz o mesmo para
+`http://controller:8000`, de modo que painel e API ficam na mesma origem.
 
 ## Desenvolvimento
 
 ```bash
 cd web
 npm install
-npm run dev            # http://localhost:5173  (controlador em :8000)
+npm run dev            # http://localhost:5173 (controlador em :8000)
 ```
 
 ## Produção (Docker)
@@ -44,4 +47,4 @@ npm run dev            # http://localhost:5173  (controlador em :8000)
 docker compose up -d --build web
 ```
 
-Dashboard em **http://localhost:8080** (login inicial admin/admin).
+O painel fica em http://localhost:8080.

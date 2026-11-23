@@ -44,3 +44,9 @@ node_modules/
 # anotacoes podem ser versionadas.
 /docs/revisao-bibliografica/*.pdf
 /docs/revisao-bibliografica/*.PDF
+
+# Arquivos temporários de editores e do LibreOffice
+.~lock.*
+*.tmp
+*.bak
+.pytest_cache/

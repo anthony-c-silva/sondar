@@ -2,8 +2,8 @@ module github.com/anthonycarlosp7/ufsm-monitor-agent
 
 go 1.25.0
 
-// A dependencia do SQLite (modernc.org/sqlite, Go puro, sem cgo) e resolvida
-// com `go mod tidy` na sua maquina (precisa de rede). Veja agent/README.md.
+// O SQLite usa modernc.org/sqlite (Go puro, sem cgo), o que permite a
+// compilacao cruzada para ARM. Veja agent/README.md.
 
 require (
 	github.com/miekg/dns v1.1.62
