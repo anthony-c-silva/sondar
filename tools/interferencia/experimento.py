@@ -19,6 +19,9 @@ Uso (no servidor, onde a API responde em localhost:8000):
 O destino de um par pode ser um computador que não é sonda, rodando 'iperf3 -s'
 (informe o IP, ex.: --par-b probe-ct-02:192.168.129.50). O endereço precisa estar
 cadastrado em Destinos no painel.
+Com ':r' no fim do par (ex.: --par-b probe-ct-03:probe-ct-02:r) o teste roda em modo
+reverso: a origem abre a conexão e os dados vão do destino para a origem. Serve
+quando só um dos lados consegue abrir conexão com o outro.
 Opções úteis: --rodadas 10 --duracao 10 --usuario admin
 A senha é pedida no terminal (ou lida de SONDAR_SENHA).
 Somente biblioteca padrão do Python.
@@ -72,11 +75,14 @@ class Api:
 
 
 def par(txt):
-    try:
-        src, dst = txt.split(":")
-        return src.strip(), dst.strip()
-    except ValueError:
-        raise argparse.ArgumentTypeError("use ORIGEM:DESTINO, ex.: probe-ct-01:probe-srv-01")
+    """ORIGEM:DESTINO ou ORIGEM:DESTINO:r. Com ':r' o teste roda em modo reverso:
+    a origem abre a conexão, mas os dados vão do destino para a origem."""
+    partes = [p.strip() for p in txt.split(":")]
+    if len(partes) == 2:
+        return partes[0], partes[1], False
+    if len(partes) == 3 and partes[2] in ("r", "reverso"):
+        return partes[0], partes[1], True
+    raise argparse.ArgumentTypeError("use ORIGEM:DESTINO ou ORIGEM:DESTINO:r, ex.: probe-ct-01:probe-srv-01")
 
 
 def externo(dst):
@@ -92,9 +98,9 @@ def par_api(src, dst):
     return {"source_probe": src, "target": dst} if externo(dst) else {"source_probe": src, "target_probe": dst}
 
 
-def job(jid, src, dst, dur):
+def job(jid, src, dst, dur, reverso=False):
     return {"id": jid, "type": "iperf3", "sources": [f"probe:{src}"], "targets": [alvo(dst)],
-            "period_seconds": 3600, "duration_seconds": dur, "reverse": False}
+            "period_seconds": 3600, "duration_seconds": dur, "reverse": reverso}
 
 
 def ocioso(api, timeout=180):
@@ -129,7 +135,7 @@ def main():
     ap.add_argument("--saida", default=".")
     args = ap.parse_args()
 
-    (a_src, a_dst), (b_src, b_dst) = args.par_a, args.par_b
+    (a_src, a_dst, a_rev), (b_src, b_dst, b_rev) = args.par_a, args.par_b
     if len({a_src, a_dst, b_src, b_dst}) < 4:
         sys.exit("os dois pares precisam usar quatro sondas diferentes")
     senha = os.getenv("SONDAR_SENHA") or getpass.getpass(f"senha do usuário {args.usuario}: ")
@@ -145,11 +151,10 @@ def main():
 
     # 2. planos do experimento (desabilitados: só rodam quando o script manda)
     d = args.duracao
-    planos = {
-        "exp-solo-a": [job("par-a", a_src, a_dst, d)],
-        "exp-solo-b": [job("par-b", b_src, b_dst, d)],
-        "exp-par": [job("par-a", a_src, a_dst, d), job("par-b", b_src, b_dst, d)],
-    }
+    ja, jb = job("par-a", a_src, a_dst, d, a_rev), job("par-b", b_src, b_dst, d, b_rev)
+    planos = {"exp-solo-a": [ja], "exp-solo-b": [jb], "exp-par": [ja, jb]}
+    for nome, src, dst, rev in (("A", a_src, a_dst, a_rev), ("B", b_src, b_dst, b_rev)):
+        print(f"par {nome}: dados de {dst if rev else src} para {src if rev else dst}")
     for pid, jobs in planos.items():
         api.post("/plans", {"plan_id": pid, "revision": 1, "enabled": False, "groups": {}, "jobs": jobs})
     modo_original = api.get("/scheduler/coordination")["mode"]

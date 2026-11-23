@@ -34,6 +34,13 @@ iperf3` e `iperf3 -s`). Cadastre o IP dele em **Destinos** no painel e use
 cadeia de enlaces da sonda de origem, então o conflito no `sw100-ti` continua
 sendo detectado.
 
+### Sonda de destino em outra rede
+
+Se a rede de um lado não consegue abrir conexões com a do outro, inverta o par e use
+modo reverso, com `:r` no fim. Exemplo: `--par-b probe-ct-03:probe-ct-02:r`. A ct-03 abre a
+conexão, mas os dados vão da ct-02 para a ct-03. Confira que os dois pares enviam dados no
+mesmo sentido pelo enlace compartilhado.
+
 ## Preparação
 
 1. **probe-ct-03 (Pi 3B):** troque `PROBE_ID=probe-ct-03` e a senha no
