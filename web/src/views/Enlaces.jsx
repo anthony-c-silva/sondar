@@ -1,18 +1,41 @@
 import React, { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Waypoints, ArrowUp, ArrowDown, X, Gauge, Route, Activity } from "lucide-react";
+import {
+  Plus, Pencil, Trash2, Waypoints, ArrowUp, ArrowDown, X, Gauge, Route, Activity,
+  Server, Network, Lock, Hourglass, GitCompare, CircleCheckBig, TriangleAlert, History,
+} from "lucide-react";
 import { api } from "../api.js";
 import { fmtAgo, fmtTime } from "../format.js";
 import Modal from "../components/Modal.jsx";
 import ConfirmDialog from "../components/ConfirmDialog.jsx";
 import { SkeletonTable } from "../components/Skeleton.jsx";
 
-const MODE_LABEL = {
-  sonda: "Por sonda",
-  trecho: "Por trecho compartilhado",
-  global: "Um teste por vez",
-};
+const MODES = [
+  { id: "sonda", label: "Por sonda", icon: Server, desc: "Uma sonda participa de um teste de vazão por vez." },
+  { id: "trecho", label: "Por trecho compartilhado", icon: Network, desc: "Também aguardam os testes que passam por um mesmo enlace cadastrado." },
+  { id: "global", label: "Um teste por vez", icon: Lock, desc: "Apenas um teste de vazão em toda a rede." },
+];
+const MODE_LABEL = Object.fromEntries(MODES.map((m) => [m.id, m.label]));
 
 const emptyLink = { name: "", description: "", capacity_mbps: "" };
+const emptyPair = { src: "", dst: "" };
+
+// "enlace:uplink-x" -> "uplink-x"; "sonda:probe-ct-01" -> "probe-ct-01"
+const resName = (r) => r.replace(/^(enlace|sonda):/, "");
+const isLink = (r) => r.startsWith("enlace:");
+
+function ResChips({ list, busy }) {
+  if (!list?.length) return <span className="muted">—</span>;
+  return (
+    <span className="enl-chips">
+      {list.map((r) => (
+        <span key={r} className={"enl-chip " + (isLink(r) ? "link" : r === "global" ? "global" : "probe") + (busy?.has(r) ? " busy" : "")}>
+          {isLink(r) ? <Waypoints size={11} /> : r === "global" ? <Lock size={11} /> : <Server size={11} />}
+          {resName(r)}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 export default function Enlaces({ notify, refreshKey }) {
   const [coord, setCoord] = useState(null);
@@ -31,6 +54,11 @@ export default function Enlaces({ notify, refreshKey }) {
   const [chainOf, setChainOf] = useState(null); // { probe_id, links: [] }
   const [addSel, setAddSel] = useState("");
 
+  const [pairA, setPairA] = useState(emptyPair);
+  const [pairB, setPairB] = useState(emptyPair);
+  const [check, setCheck] = useState(null);
+  const [checking, setChecking] = useState(false);
+
   const loadStatic = () =>
     Promise.all([api.links(), api.uplinks(), api.probes()])
       .then(([l, u, p]) => { setLinks(l); setUplinks(u); setProbes(p); });
@@ -45,16 +73,18 @@ export default function Enlaces({ notify, refreshKey }) {
     Promise.all([loadStatic(), loadCoord(false)])
       .catch((e) => notify("Falha ao carregar enlaces: " + e.message, "err"))
       .finally(() => setLoading(false));
-    const t = setInterval(() => loadCoord(true), 5000);
+    const t = setInterval(() => loadCoord(true), 3000);
     return () => clearInterval(t);
     /* eslint-disable-next-line */
   }, [refreshKey]);
 
   const changeMode = async (mode) => {
+    if (mode === coord?.mode) return;
     setSavingMode(true);
     try {
       await api.setCoordinationMode(mode);
       notify(`Coordenação: ${MODE_LABEL[mode]}`, "ok");
+      setCheck(null);
       loadCoord(true);
     } catch (e) {
       notify("Erro ao mudar o modo: " + e.message, "err");
@@ -110,10 +140,23 @@ export default function Enlaces({ notify, refreshKey }) {
       await api.setUplinks(chainOf.probe_id, chainOf.links);
       notify(`Caminho de '${chainOf.probe_id}' salvo`, "ok");
       setChainOf(null);
+      setCheck(null);
       loadStatic();
     } catch (e) {
       notify("Erro ao salvar o caminho: " + e.message, "err");
     } finally { setSaving(false); }
+  };
+
+  // ----- verificação de conflito
+  const runCheck = async () => {
+    if (!pairA.src || !pairA.dst || !pairB.src || !pairB.dst) return notify("Escolha origem e destino dos dois testes", "err");
+    setChecking(true);
+    try {
+      const pairs = [pairA, pairB].map((p) => ({ source_probe: p.src, target_probe: p.dst }));
+      setCheck(await api.checkConflicts({ pairs }));
+    } catch (e) {
+      notify("Erro ao verificar: " + e.message, "err");
+    } finally { setChecking(false); }
   };
 
   if (loading && !coord) {
@@ -121,119 +164,189 @@ export default function Enlaces({ notify, refreshKey }) {
   }
 
   const mode = coord?.mode || "trecho";
+  const running = coord?.running || [];
+  const queue = coord?.queue || [];
+  const busySet = new Set((coord?.busy || []).map((b) => b.resource));
+  const busyLinks = new Set([...busySet].filter(isLink).map(resName));
+  const recent = (coord?.recent || []).slice(0, 6);
+  const capOf = Object.fromEntries(links.map((l) => [l.name, l.capacity_mbps]));
+  const probeIds = probes.map((p) => p.probe_id);
+
+  const PairPicker = ({ label, value, onChange }) => (
+    <div className="enl-pair">
+      <span className="enl-pair-label">{label}</span>
+      <select value={value.src} onChange={(e) => { setCheck(null); onChange({ ...value, src: e.target.value }); }}>
+        <option value="">origem…</option>
+        {probeIds.map((p) => <option key={p} value={p}>{p}</option>)}
+      </select>
+      <span className="enl-arrow">→</span>
+      <select value={value.dst} onChange={(e) => { setCheck(null); onChange({ ...value, dst: e.target.value }); }}>
+        <option value="">destino…</option>
+        {probeIds.filter((p) => p !== value.src).map((p) => <option key={p} value={p}>{p}</option>)}
+      </select>
+    </div>
+  );
 
   return (
-    <>
-      {/* modo de coordenação */}
-      <div className="section-title"><Gauge size={14} /> Coordenação dos testes de vazão</div>
-      <div className="card">
-        <div className="bd">
-          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <select value={mode} disabled={savingMode} onChange={(e) => changeMode(e.target.value)} style={{ width: "auto" }}>
-              {Object.keys(MODE_LABEL).map((m) => <option key={m} value={m}>{MODE_LABEL[m]}</option>)}
-            </select>
-            <span className="muted" style={{ fontSize: 12.5 }}>{coord?.modes?.[mode]}</span>
-          </div>
-          <div className="hint" style={{ marginTop: 10, fontSize: 12 }}>
-            No modo por trecho, dois testes cujos caminhos passam por um mesmo enlace cadastrado abaixo aguardam um ao outro.
-            Sondas sem caminho cadastrado seguem apenas a regra por sonda.
-          </div>
-        </div>
-      </div>
-
-      {/* estado ao vivo */}
-      <div className="section-title"><Activity size={14} /> Estado agora</div>
-      <div className="card scroll-x">
-        <div className="bd">
-          <div style={{ display: "flex", gap: 24, flexWrap: "wrap", fontSize: 13 }}>
-            <div><b>Em execução:</b> {coord?.running?.length || 0}</div>
-            <div><b>Na fila:</b> {coord?.queue?.length || 0}</div>
-            <div><b>Recursos ocupados:</b> {coord?.busy?.length ? coord.busy.map((b) => b.resource).join(", ") : "nenhum"}</div>
-          </div>
-          {coord?.queue?.length > 0 && (
-            <table style={{ marginTop: 10 }}>
-              <thead><tr><th>Aguardando</th><th>Teste</th><th>Esperando por</th></tr></thead>
-              <tbody>
-                {coord.queue.map((q, i) => (
-                  <tr key={i}>
-                    <td>{q.waiting_s}s</td>
-                    <td className="mono">{q.source_probe} → {q.target_probe || q.target}</td>
-                    <td className="mono">{(q.blocked_by || []).join(", ") || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
-
-      <div className="section-title">Últimos testes de vazão despachados</div>
-      <div className="card scroll-x">
-        {!coord?.recent?.length ? (
-          <div className="empty-state">Nenhum teste de vazão despachado desde que o controlador iniciou.</div>
-        ) : (
-          <table>
-            <thead><tr><th>Quando</th><th>Teste</th><th>Modo</th><th>Esperou</th><th>Motivo da espera</th><th>Enlaces do caminho</th></tr></thead>
-            <tbody>
-              {coord.recent.slice(0, 20).map((r) => (
-                <tr key={r.id}>
-                  <td title={fmtTime(r.dispatched_at)}>{fmtAgo(r.dispatched_at)}</td>
-                  <td className="mono">{r.source_probe} → {r.target_probe || r.target}</td>
-                  <td>{MODE_LABEL[r.mode] || r.mode}</td>
-                  <td>{r.waited_s}s</td>
-                  <td className="mono">{(r.blocked_by || []).join(", ") || "—"}</td>
-                  <td className="mono">{r.resources.filter((x) => x.startsWith("enlace:")).map((x) => x.slice(7)).join(", ") || "—"}</td>
-                </tr>
+    <div className="enl">
+      {/* linha 1: modo e estado ao vivo */}
+      <div className="enl-row">
+        <div className="card">
+          <div className="hd"><h3><Gauge size={15} /> Coordenação dos testes de vazão</h3></div>
+          <div className="bd">
+            <div className="enl-modes">
+              {MODES.map(({ id, label, icon: Icon, desc }) => (
+                <button key={id} type="button" disabled={savingMode}
+                  className={"enl-mode" + (mode === id ? " active" : "")} onClick={() => changeMode(id)}>
+                  <span className="enl-mode-hd"><Icon size={15} /> {label}</span>
+                  <span className="enl-mode-desc">{desc}</span>
+                </button>
               ))}
-            </tbody>
-          </table>
-        )}
+            </div>
+            <div className="enl-kpis">
+              <div><span className="enl-kpi-v">{running.length}</span><span className="enl-kpi-l">em execução</span></div>
+              <div><span className="enl-kpi-v">{queue.length}</span><span className="enl-kpi-l">aguardando</span></div>
+              <div><span className="enl-kpi-v">{links.length}</span><span className="enl-kpi-l">enlaces cadastrados</span></div>
+              <div><span className="enl-kpi-v">{Object.values(uplinks).filter((l) => l.length).length}</span><span className="enl-kpi-l">sondas com caminho</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="hd">
+            <h3><Activity size={15} /> Agora</h3>
+            <span className={"badge " + (running.length ? "ok" : "muted")}>{running.length ? "teste em andamento" : "ocioso"}</span>
+          </div>
+          <div className="bd enl-live">
+            {running.length === 0 && queue.length === 0 && (
+              <div className="enl-empty">Nenhum teste de vazão em andamento. Os testes aparecem aqui quando um plano de vazão é executado.</div>
+            )}
+            {running.map((r) => (
+              <div key={r.id} className="enl-live-item run">
+                <div className="enl-live-top">
+                  <span className="badge ok">executando</span>
+                  <span className="mono">{r.source_probe} → {r.target_probe || r.target}</span>
+                  <span className="muted enl-right">despachado {fmtAgo(r.dispatched_at)}</span>
+                </div>
+                <ResChips list={r.resources} />
+              </div>
+            ))}
+            {queue.map((q, i) => (
+              <div key={i} className="enl-live-item wait">
+                <div className="enl-live-top">
+                  <span className="badge warn"><Hourglass size={11} /> aguardando {Math.round(q.waiting_s)} s</span>
+                  <span className="mono">{q.source_probe} → {q.target_probe || q.target}</span>
+                </div>
+                <div className="enl-live-why">liberado quando sair: <ResChips list={q.blocked_by} busy={busySet} /></div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* enlaces */}
-      <div className="section-title" style={{ justifyContent: "space-between" }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><Waypoints size={14} /> Enlaces</span>
-        <button className="btn small primary" onClick={openCreate}><Plus size={14} /> Adicionar enlace</button>
-      </div>
-      <div className="card scroll-x">
-        <table>
-          <thead><tr><th>Nome</th><th>Descrição</th><th>Capacidade</th><th>Usado por</th><th></th></tr></thead>
-          <tbody>
+      {/* linha 2: topologia e enlaces */}
+      <div className="enl-row">
+        <div className="card">
+          <div className="hd"><h3><Route size={15} /> Caminho de cada sonda até o núcleo</h3></div>
+          <div className="bd enl-topo">
+            {probes.map((p) => {
+              const chain = uplinks[p.probe_id] || [];
+              return (
+                <div key={p.probe_id} className="enl-topo-row">
+                  <span className="enl-node probe"><Server size={12} /> {p.probe_id}</span>
+                  {chain.map((l) => (
+                    <React.Fragment key={l}>
+                      <span className="enl-wire" />
+                      <span className={"enl-node link" + (busyLinks.has(l) ? " busy" : "")}>
+                        <Waypoints size={12} /> {l}{capOf[l] ? <em>{capOf[l]} Mb/s</em> : null}
+                      </span>
+                    </React.Fragment>
+                  ))}
+                  <span className="enl-wire" />
+                  <span className="enl-node core"><Network size={12} /> núcleo</span>
+                  <button className="iconbtn enl-edit" onClick={() => openChain(p.probe_id)} title="Editar caminho" aria-label="editar caminho"><Pencil size={13} /></button>
+                </div>
+              );
+            })}
+            {probes.length === 0 && <div className="enl-empty">Nenhuma sonda cadastrada.</div>}
+            <div className="hint enl-foot">Testes entre duas sondas reservam os enlaces que aparecem em apenas um dos dois caminhos.</div>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="hd">
+            <h3><Waypoints size={15} /> Enlaces</h3>
+            <button className="btn small primary" onClick={openCreate}><Plus size={14} /> Adicionar</button>
+          </div>
+          <div className="bd enl-links">
             {links.map((l) => (
-              <tr key={l.name}>
-                <td className="mono">{l.name}</td>
-                <td>{l.description || "—"}</td>
-                <td>{l.capacity_mbps ? `${l.capacity_mbps} Mb/s` : "—"}</td>
-                <td className="mono">{l.used_by.length ? l.used_by.join(", ") : "—"}</td>
-                <td>
-                  <div className="btn-row">
-                    <button className="btn small" onClick={() => openEdit(l)}><Pencil size={13} /> Editar</button>
-                    <button className="btn small danger" onClick={() => setToDelete(l)}><Trash2 size={13} /> Remover</button>
-                  </div>
-                </td>
-              </tr>
+              <div key={l.name} className="enl-link">
+                <div className="enl-link-main">
+                  <span className="mono enl-link-name">{l.name}</span>
+                  {l.capacity_mbps ? <span className="badge blue">{l.capacity_mbps} Mb/s</span> : null}
+                  {busyLinks.has(l.name) && <span className="badge warn">em uso</span>}
+                </div>
+                <div className="enl-link-sub">
+                  <span className="muted">{l.description || "sem descrição"}</span>
+                  <span className="muted">· usado por {l.used_by.length ? l.used_by.join(", ") : "nenhuma sonda"}</span>
+                </div>
+                <div className="enl-link-act">
+                  <button className="iconbtn" onClick={() => openEdit(l)} title="Editar" aria-label="editar"><Pencil size={13} /></button>
+                  <button className="iconbtn danger" onClick={() => setToDelete(l)} title="Remover" aria-label="remover"><Trash2 size={13} /></button>
+                </div>
+              </div>
             ))}
-            {links.length === 0 && <tr><td colSpan="5" className="muted">Nenhum enlace cadastrado. Cadastre os trechos que as sondas compartilham, como o uplink de um switch.</td></tr>}
-          </tbody>
-        </table>
+            {links.length === 0 && <div className="enl-empty">Nenhum enlace cadastrado. Cadastre os trechos que as sondas compartilham, como o uplink de um switch.</div>}
+          </div>
+        </div>
       </div>
 
-      {/* caminho de cada sonda */}
-      <div className="section-title"><Route size={14} /> Caminho de cada sonda até o núcleo</div>
-      <div className="card scroll-x">
-        <table>
-          <thead><tr><th>Sonda</th><th>Enlaces (da sonda em direção ao núcleo)</th><th></th></tr></thead>
-          <tbody>
-            {probes.map((p) => (
-              <tr key={p.probe_id}>
-                <td className="mono">{p.probe_id}</td>
-                <td className="mono">{(uplinks[p.probe_id] || []).length ? uplinks[p.probe_id].join(" → ") : <span className="muted">não cadastrado</span>}</td>
-                <td><button className="btn small" onClick={() => openChain(p.probe_id)}><Pencil size={13} /> Editar</button></td>
-              </tr>
-            ))}
-            {probes.length === 0 && <tr><td colSpan="3" className="muted">Nenhuma sonda cadastrada.</td></tr>}
-          </tbody>
-        </table>
+      {/* linha 3: verificador e histórico */}
+      <div className="enl-row">
+        <div className="card">
+          <div className="hd"><h3><GitCompare size={15} /> Verificar dois testes</h3><span className="muted enl-small">modo {MODE_LABEL[mode].toLowerCase()}</span></div>
+          <div className="bd">
+            <PairPicker label="A" value={pairA} onChange={setPairA} />
+            <PairPicker label="B" value={pairB} onChange={setPairB} />
+            <div className="enl-check-act">
+              <button className="btn small primary" onClick={runCheck} disabled={checking}>{checking ? <span className="spinner" /> : <GitCompare size={13} />} Verificar</button>
+            </div>
+            {check && (() => {
+              const c = check.conflicts[0];
+              return (
+                <div className={"enl-verdict " + (c ? "conflict" : "free")}>
+                  {c ? <TriangleAlert size={16} /> : <CircleCheckBig size={16} />}
+                  <div>
+                    <b>{c ? "Os dois testes não rodam juntos" : "Os dois testes podem rodar juntos"}</b>
+                    <div className="enl-verdict-sub">
+                      {c ? <>disputam <ResChips list={c.shared} /></> : "nenhum recurso em comum neste modo"}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="hd"><h3><History size={15} /> Últimos testes de vazão</h3></div>
+          <div className="bd enl-recent">
+            {recent.length === 0 && <div className="enl-empty">Nenhum teste de vazão despachado desde que o controlador iniciou.</div>}
+            {recent.map((r) => {
+              const lk = r.resources.filter(isLink);
+              return (
+                <div key={r.id} className="enl-recent-row" title={fmtTime(r.dispatched_at)}>
+                  <span className="muted enl-when">{fmtAgo(r.dispatched_at)}</span>
+                  <span className="mono enl-test">{r.source_probe} → {r.target_probe || r.target}</span>
+                  {r.waited_s >= 1
+                    ? <span className="badge warn" title={(r.blocked_by || []).map(resName).join(", ")}><Hourglass size={11} /> esperou {Math.round(r.waited_s)} s</span>
+                    : <span className="badge ok">sem espera</span>}
+                  {lk.length ? <ResChips list={lk} /> : <span className="muted enl-small">sem enlace</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* modal enlace */}
@@ -316,6 +429,6 @@ export default function Enlaces({ notify, refreshKey }) {
         confirmLabel="Remover enlace"
         message={toDelete && <>Remover o enlace <b className="mono">{toDelete.name}</b>? Ele também sai do caminho das sondas que o usam.</>}
       />
-    </>
+    </div>
   );
 }
